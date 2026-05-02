@@ -1,0 +1,40 @@
+name: Deploy to Google Apps Script
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install clasp
+        run: npm install -g @google/clasp
+
+      - name: Setup clasp credentials
+        run: echo '${{ secrets.CLASP_TOKEN }}' > ~/.clasprc.json
+
+      - name: Create .clasp.json
+        run: |
+          echo '{"scriptId":"${{ secrets.CLASP_SCRIPT_ID }}","rootDir":"."}' > .clasp.json
+
+      - name: Get commit hash
+        id: hash
+        run: echo "hash=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Update CDN hash in Index.html
+        run: sed -i 's|@[A-Za-z0-9]\{40\}|@${{ steps.hash.outputs.hash }}|g' Index.html
+
+      - name: Push to GAS
+        run: clasp push --force
+
+      - name: Deploy
+        run: clasp deploy --deploymentId "${{ secrets.GAS_DEPLOYMENT_ID }}" --description "Auto-deploy ${{ steps.hash.outputs.hash }}"

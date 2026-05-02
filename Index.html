@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>강경고등학교 기숙사 관리</title>
+
+  <!-- PWA 매니페스트 (홈 화면 추가 시 사용) -->
+  <link rel="manifest" crossorigin="use-credentials">
+
+  <!-- 아이콘 (플레이스홀더) -->
+  <link rel="icon" type="image/svg+xml"
+    href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏫</text></svg>">
+
+  <!-- 앱 스타일 (GitHub CDN) -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/zkxmdydy106-ai/dormitory-app@684b1693e0619630f2f338f37a70e873a28444cf/src/style.css">
+</head>
+
+<body>
+
+  <!-- ═══════════════ 로딩 오버레이 ═══════════════ -->
+  <div id="loading-overlay" class="loading-overlay">
+    <div class="loading-spinner">
+      <div class="spinner"></div>
+      <p>기숙사 관리 시스템 로드 중...</p>
+    </div>
+  </div>
+
+  <!-- ═══════════════ 상단 헤더 ═══════════════ -->
+  <header id="app-header" class="app-header">
+    <div class="header-left">
+      <button id="btn-back" class="btn-icon btn-back" onclick="goBack()" style="display:none;">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="15 18 9 12 15 6"></polyline>
+        </svg>
+      </button>
+    </div>
+    <h1 id="header-title" class="header-title">기숙사 관리</h1>
+    <div class="header-right">
+      <span id="user-email" class="user-email"></span>
+      <select id="month-select" class="month-select" onchange="onMonthChange()">
+        <option value="3월">3월</option>
+      </select>
+    </div>
+  </header>
+
+  <!-- ═══════════════ 메인 콘텐츠 ═══════════════ -->
+  <main id="main-content" class="main-content">
+
+    <!-- ── 학생 리스트 화면 ── -->
+    <section id="page-student-list" class="page active">
+      <div class="search-bar">
+        <svg class="search-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2">
+          <circle cx="11" cy="11" r="8"></circle>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+        </svg>
+        <input id="search-input" type="text" placeholder="학번, 이름, 호실로 검색..." oninput="filterStudents()">
+        <button class="btn-icon"
+          style="margin-left:8px; border:1px solid var(--border-color); border-radius:8px; padding:4px;"
+          onclick="loadStudentList()" title="최신 명단 불러오기">
+          🔄
+        </button>
+      </div>
+
+      <!-- 빠른 필터 칩 -->
+      <div class="filter-chips">
+        <button class="chip active" onclick="setFilter('all', this)">전체</button>
+        <button class="chip chip-female" onclick="setFilter('female', this)">여학생</button>
+        <button class="chip chip-male" onclick="setFilter('male', this)">남학생</button>
+        <button class="chip chip-warning" onclick="setFilter('penalty', this)">벌점 있음</button>
+        <button class="chip chip-danger" onclick="setFilter('discipline', this)">징계 대상</button>
+      </div>
+
+      <div id="student-list" class="student-list">
+        <!-- 동적으로 생성 -->
+      </div>
+    </section>
+
+    <!-- ── 학생 상세 화면 ── -->
+    <section id="page-student-detail" class="page">
+      <div id="student-detail-content">
+        <!-- 동적으로 생성 -->
+      </div>
+    </section>
+
+    <!-- ── 벌점 항목 선택 화면 ── -->
+    <section id="page-penalty-items" class="page">
+      <div class="search-bar">
+        <svg class="search-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2">
+          <circle cx="11" cy="11" r="8"></circle>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+        </svg>
+        <input id="penalty-search" type="text" placeholder="벌점 항목 검색..." oninput="filterPenaltyItems()">
+      </div>
+      <div id="penalty-items-list" class="penalty-items-list">
+        <!-- 동적으로 생성 -->
+      </div>
+    </section>
+
+    <!-- ── 누가기록 화면 ── -->
+    <section id="page-cumulative" class="page">
+      <div class="section-header">
+        <h2>누가 기록</h2>
+        <button class="btn-primary btn-sm" onclick="showAddRecordDialog()">
+          + 기록 추가
+        </button>
+      </div>
+      <div id="cumulative-list" class="cumulative-list">
+        <!-- 동적으로 생성 -->
+      </div>
+    </section>
+
+    <!-- ── 교사 건의사항 화면 ── -->
+    <section id="page-suggestions" class="page">
+      <div class="section-header">
+        <h2>교사 건의사항</h2>
+        <button class="btn-primary btn-sm" onclick="showAddSuggestionDialog()">
+          + 건의 작성
+        </button>
+      </div>
+      <div id="suggestions-list" class="suggestions-list">
+        <!-- 동적으로 생성 -->
+      </div>
+    </section>
+
+    <!-- ── 사감 근무 조회 화면 ── -->
+    <section id="page-duty" class="page">
+      <!-- 캘린더 영역 -->
+      <div id="duty-calendar-wrap"></div>
+      <div class="duty-filter">
+        <label>교사 선택</label>
+        <select id="duty-teacher-select" onchange="filterDutyByTeacher()">
+          <option value="">전체 보기</option>
+        </select>
+      </div>
+      <div id="duty-schedule-list" class="duty-schedule-list">
+        <!-- 동적으로 생성 -->
+      </div>
+    </section>
+
+    <!-- ── 설정 화면 ── -->
+    <section id="page-settings" class="page">
+      <div id="settings-content" class="settings-content">
+        <!-- 동적으로 생성 -->
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ═══════════════ 하단 네비게이션 ═══════════════ -->
+  <nav id="bottom-nav" class="bottom-nav">
+    <button class="nav-item active" onclick="navigateTo('student-list', this)" data-page="student-list">
+      <span class="nav-icon" id="nav-icon-student-list"></span>
+      <span>학생</span>
+    </button>
+    <button class="nav-item" onclick="navigateTo('cumulative', this)" data-page="cumulative">
+      <span class="nav-icon" id="nav-icon-cumulative"></span>
+      <span>누가기록</span>
+    </button>
+    <button class="nav-item" onclick="navigateTo('suggestions', this)" data-page="suggestions">
+      <span class="nav-icon" id="nav-icon-suggestions"></span>
+      <span>건의</span>
+    </button>
+    <button class="nav-item" onclick="navigateTo('duty', this)" data-page="duty">
+      <span class="nav-icon" id="nav-icon-duty"></span>
+      <span>사감</span>
+    </button>
+    <button class="nav-item" onclick="navigateTo('settings', this)" data-page="settings">
+      <span class="nav-icon" id="nav-icon-settings"></span>
+      <span>설정</span>
+    </button>
+  </nav>
+
+  <!-- ═══════════════ 다이얼로그/모달 ═══════════════ -->
+  <div id="modal-overlay" class="modal-overlay" onclick="closeModal()">
+    <div class="modal-content" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <h3 id="modal-title">제목</h3>
+        <button class="btn-icon" onclick="closeModal()">✕</button>
+      </div>
+      <div id="modal-body" class="modal-body">
+        <!-- 동적으로 생성 -->
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════ 토스트 알림 ═══════════════ -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <!-- ═══════════════ 로고 & 푸터 ═══════════════ -->
+  <footer class="app-footer">
+    <div class="footer-logo">
+      <!-- 로고 플레이스홀더: 실제 강경고등학교 로고 이미지를 여기에 업로드하세요 -->
+      <div class="logo-placeholder" title="강경고등학교 로고를 업로드해 주세요">
+        🏫
+        <span class="logo-text">강경고등학교</span>
+      </div>
+    </div>
+    <p class="footer-credit">Created by 김요한</p>
+  </footer>
+
+  <!-- 아이콘 + 앱 로직 (GitHub CDN) -->
+  <script src="https://cdn.jsdelivr.net/gh/zkxmdydy106-ai/dormitory-app@684b1693e0619630f2f338f37a70e873a28444cf/src/icons.js"></script>
+  <script src="https://cdn.jsdelivr.net/gh/zkxmdydy106-ai/dormitory-app@684b1693e0619630f2f338f37a70e873a28444cf/src/app.js"></script>
+</body>
+
+</html>
