@@ -358,7 +358,7 @@ function getGender(room) {
 
     // 필터 칩
     if (APP.currentFilter === 'penalty') {
-      filtered = filtered.filter(s => (s.calculatedTotalPenalty || s.totalPenalty || 0) > 0);
+      filtered = filtered.filter(s => (s.cumulativePenalty || s.calculatedTotalPenalty || s.totalPenalty || 0) > 0);
     } else if (APP.currentFilter === 'discipline') {
       filtered = filtered.filter(s => {
         const d = s.calculatedDiscipline || s.discipline || '';

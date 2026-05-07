@@ -1372,13 +1372,18 @@ function getDisciplineRules() {
  * 벌점에 따른 징계 판단
  */
 function calculateDiscipline(totalPenalty, rules) {
-  if (totalPenalty <= 0) return '없음';
-  
+  if (!totalPenalty || totalPenalty <= 0) return '없음';
+  if (rules.length === 0) return '없음';
+
+  // 첫 기준 미만이면 아직 징계 없음
+  if (totalPenalty < rules[0].start) return '없음';
+
   for (const rule of rules) {
     if (totalPenalty >= rule.start && totalPenalty <= rule.end) {
       return rule.name + ' (' + rule.action + ')';
     }
   }
+  // 마지막 기준 초과
   return '기준 초과';
 }
 
