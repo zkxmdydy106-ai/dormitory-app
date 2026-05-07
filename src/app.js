@@ -172,6 +172,7 @@ function getGender(room) {
       case 'duty':
         updateHeaderTitle('사감 근무 조회');
         document.getElementById('btn-back').style.display = 'none';
+        renderDutyCalendar(APP.dutyData || [], APP.currentMonth);
         renderDutySchedule(APP.dutyData || [], APP.dutyTeachers || []);
         break;
       case 'settings':
@@ -1328,6 +1329,52 @@ function getGender(room) {
       }
     } catch (e) {
       showToast('오류: ' + e, 'error');
+    }
+  }
+
+  // ─── 사감 근무 캘린더 ──────────────────────────────────
+  function renderDutyCalendar(dutyData, monthStr) {
+    var wrap = document.getElementById('duty-calendar-wrap');
+    if (!wrap) return;
+    var monthNum = parseInt(String(monthStr).replace('월', ''));
+    var year = new Date().getFullYear();
+    var firstDay = new Date(year, monthNum - 1, 1);
+    var lastDay = new Date(year, monthNum, 0);
+    var today = new Date();
+    var dutyMap = {};
+    (dutyData || []).forEach(function(entry) {
+      var nums = String(entry.date).match(/\d+/g);
+      if (!nums) return;
+      var day = parseInt(nums[nums.length - 1], 10);
+      if (!dutyMap[day]) dutyMap[day] = [];
+      dutyMap[day].push(entry.name);
+    });
+    var DAYS = ['일', '월', '화', '수', '목', '금', '토'];
+    var html = '<div class="duty-calendar"><div class="duty-calendar-header"><span class="duty-calendar-title">' + monthNum + '월 사감 근무 캘린더</span></div><div class="duty-cal-grid">';
+    html += DAYS.map(function(d, i) { return '<div class="duty-cal-dow ' + (i === 0 ? 'sun' : i === 6 ? 'sat' : '') + '">' + d + '</div>'; }).join('');
+    for (var i = 0; i < firstDay.getDay(); i++) html += '<div class="duty-cal-cell empty"></div>';
+    for (var d = 1; d <= lastDay.getDate(); d++) {
+      var isToday = (today.getFullYear() === year && today.getMonth() + 1 === monthNum && today.getDate() === d);
+      var hasDuty = !!dutyMap[d];
+      var dow = new Date(year, monthNum - 1, d).getDay();
+      var colorStyle = !isToday ? (dow === 0 ? 'color:#e53935;' : dow === 6 ? 'color:#1565c0;' : '') : '';
+      html += '<div class="duty-cal-cell' + (isToday ? ' today' : '') + (hasDuty ? ' has-duty' : '') + '" style="' + colorStyle + '" onclick="showDutyOnDay(' + d + ')">' + d + '</div>';
+    }
+    html += '</div><div class="duty-cal-popup" id="duty-cal-popup">날짜를 클릭하면 해당일 사감이 표시됩니다</div></div>';
+    wrap.innerHTML = html;
+    APP._dutyMap = dutyMap;
+  }
+
+  function showDutyOnDay(day) {
+    var popup = document.getElementById('duty-cal-popup');
+    if (!popup) return;
+    var duties = (APP._dutyMap || {})[day];
+    if (duties && duties.length > 0) {
+      popup.textContent = day + '일 사감: ' + duties.join(', ');
+      popup.style.background = 'var(--primary)';
+    } else {
+      popup.textContent = day + '일: 사감 데이터 없음';
+      popup.style.background = 'var(--text-tertiary)';
     }
   }
 
