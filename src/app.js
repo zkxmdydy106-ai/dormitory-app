@@ -313,14 +313,14 @@ function getGender(room) {
         <div class="student-info">
           <div class="student-name">${escapeHtml(s.name)}</div>
           <div class="student-meta">
-            <span>🏠 ${escapeHtml(s.room)}</span>
-            <span>📝 ${escapeHtml(s.studentId)}</span>
+            <span>${(window.ICONS && ICONS.room) || '🏠'} ${escapeHtml(s.room)}</span>
+            <span>${(window.ICONS && ICONS.id) || '📝'} ${escapeHtml(s.studentId)}</span>
           </div>
         </div>
         <div class="student-badges" id="badges-${s.studentId}">
           ${outCount > 0 ? `<span class="badge badge-out">외출${outCount}</span>` : ''}
           ${stayCount > 0 ? `<span class="badge badge-stay">외박${stayCount}</span>` : ''}
-          ${totalP > 0 ? `<span class="badge badge-penalty">${totalP}점</span>` : ''}
+          ${(s.cumulativePenalty > 0 || totalP > 0) ? `<span class="badge badge-penalty">${s.cumulativePenalty || totalP}점</span>` : ''}
         </div>
       </div>
     `;
@@ -332,7 +332,7 @@ function getGender(room) {
     const badgesContainer = document.getElementById('badges-' + s.studentId);
     if (!badgesContainer) return;
 
-    const totalP = s.calculatedTotalPenalty || s.totalPenalty || 0;
+    const totalP = s.cumulativePenalty !== undefined ? s.cumulativePenalty : (s.calculatedTotalPenalty || s.totalPenalty || 0);
     const outCount = s.appOutCount || s.outCount || 0;
     const stayCount = s.appStayCount || s.stayCount || 0;
 
@@ -452,7 +452,7 @@ function getGender(room) {
     <div class="detail-header">
       <div class="detail-avatar gender-${gender}">${initial}</div>
       <h2 class="detail-name">${escapeHtml(s.name)}</h2>
-      <div class="detail-sub">🏠 ${escapeHtml(s.room)} | 📝 ${escapeHtml(s.studentId)}</div>
+      <div class="detail-sub">${(window.ICONS && ICONS.room) || '🏠'} ${escapeHtml(s.room)} &nbsp;|&nbsp; ${(window.ICONS && ICONS.id) || '📝'} ${escapeHtml(s.studentId)}</div>
     </div>
     
     <!-- 통계 카드 -->
@@ -465,9 +465,9 @@ function getGender(room) {
         <div class="stat-value" id="stat-stay"></div>
         <div class="stat-label">외박 횟수</div>
       </div>
-      <div class="stat-card penalty">
+      <div class="stat-card penalty" onclick="showPenaltyBreakdown(APP.selectedStudent)" style="cursor:pointer;" title="클릭하면 월별 벌점 내역 확인">
         <div class="stat-value" id="stat-penalty"></div>
-        <div class="stat-label">총 벌점</div>
+        <div class="stat-label">누적 벌점 ▸</div>
       </div>
       <div class="stat-card discipline">
         <div class="stat-value" id="stat-discipline" style="font-size:14px; color: var(--warning);"></div>
@@ -477,7 +477,7 @@ function getGender(room) {
     
     <!-- 날짜 선택 기능 -->
     <div class="return-time-section visible" style="margin-bottom: var(--space-md); padding: 12px; border: 1px solid var(--border); background: var(--surface);">
-      <label style="margin-bottom:4px;">📅 적용 날짜 (과거 기록용)</label>
+      <label style="margin-bottom:4px;display:flex;align-items:center;gap:4px;">${(window.ICONS && ICONS.today) || '📅'} 적용 날짜 (과거 기록용)</label>
       <input type="date" id="record-date-input" value="${APP.selectedDate || new Date().toISOString().split('T')[0]}" style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: var(--radius-sm);">
     </div>
 
@@ -492,13 +492,13 @@ function getGender(room) {
     
     <!-- 귀사 시간 입력 (외출 시) -->
     <div class="return-time-section" id="return-time-section">
-      <label>🕐 귀사 예정 시간</label>
+      <label style="display:flex;align-items:center;gap:4px;">${(window.ICONS && ICONS.clock) || '🕐'} 귀사 예정 시간</label>
       <input type="time" id="return-time-input" value="${s.todayOut ? (s.todayOut.returnTime || '') : ''}" onchange="updateReturnTime()">
     </div>
     
     <!-- 벌점 부여 버튼 -->
-    <button class="btn-penalty-add" onclick="openPenaltySelection('${s.studentId}', '${escapeHtml(s.name)}')">
-      ⚡ 벌점 부여하기
+    <button class="btn-penalty-add" onclick="openPenaltySelection('${s.studentId}', '${escapeHtml(s.name)}')" style="display:flex;align-items:center;justify-content:center;gap:6px;">
+      ${(window.ICONS && ICONS.bolt) || '⚡'} 벌점 부여하기
     </button>
     
     <!-- 유동적 연락처 및 기록 렌더링 영역 -->
@@ -548,7 +548,8 @@ function getGender(room) {
     }
     const elPen = document.getElementById('stat-penalty');
     if (elPen) {
-      elPen.textContent = `${totalP}`;
+      const cumP = s.cumulativePenalty !== undefined ? s.cumulativePenalty : totalP;
+      elPen.textContent = `${cumP}점`;
       elPen.style.color = 'var(--danger)';
     }
     const elDisc = document.getElementById('stat-discipline');
@@ -561,9 +562,9 @@ function getGender(room) {
     if (btnOut) {
       btnOut.className = `btn-action ${todayOutActive ? 'active' : ''}`;
       btnOut.innerHTML = `
-        <span class="action-icon">${todayOutActive ? '✅' : '🚶'}</span>
+        <span class="action-icon">${todayOutActive ? (ICONS && ICONS.check || '✅') : (ICONS && ICONS.out || '🚶')}</span>
         <span>외출${todayOutActive ? ' (오늘 기록됨)' : ''}</span>
-        <span class="action-sub">${outCount >= maxOut ? '⚠️ 초과 시 벌점 부과' : '이번달 ' + outCount + '/' + maxOut}</span>
+        <span class="action-sub">${outCount >= maxOut ? '⚠ 초과 시 벌점 부과' : '이번달 ' + outCount + '/' + maxOut}</span>
       `;
     }
 
@@ -571,9 +572,9 @@ function getGender(room) {
     if (btnStay) {
       btnStay.className = `btn-action ${todayStayActive ? 'active' : ''}`;
       btnStay.innerHTML = `
-        <span class="action-icon">${todayStayActive ? '✅' : '🌙'}</span>
+        <span class="action-icon">${todayStayActive ? (ICONS && ICONS.check || '✅') : (ICONS && ICONS.moon || '🌙')}</span>
         <span>외박${todayStayActive ? ' (오늘 기록됨)' : ''}</span>
-        <span class="action-sub">${stayCount >= maxStay ? '⚠️ 초과 시 벌점 부과' : '이번달 ' + stayCount + '/' + maxStay}</span>
+        <span class="action-sub">${stayCount >= maxStay ? '⚠ 초과 시 벌점 부과' : '이번달 ' + stayCount + '/' + maxStay}</span>
       `;
     }
 
@@ -1330,6 +1331,46 @@ function getGender(room) {
     } catch (e) {
       showToast('오류: ' + e, 'error');
     }
+  }
+
+  // ─── 누적 벌점 월별 내역 모달 ─────────────────────────
+  function showPenaltyBreakdown(student) {
+    if (!student) return;
+    const byMonth = student.penaltyByMonth || {};
+    const cumTotal = student.cumulativePenalty !== undefined ? student.cumulativePenalty : (student.calculatedTotalPenalty || 0);
+    const months = Object.keys(byMonth).sort((a, b) => parseInt(a) - parseInt(b));
+
+    if (months.length === 0 && cumTotal === 0) {
+      showToast('벌점 내역이 없습니다.', 'info');
+      return;
+    }
+
+    var html = `<div style="font-size:15px;font-weight:700;margin-bottom:12px;color:var(--danger);">합계: ${cumTotal}점</div>`;
+    if (months.length === 0) {
+      html += `<p style="color:var(--text-secondary);font-size:13px;">3월 이후 앱으로 기록된 벌점이 없습니다.</p>`;
+    } else {
+      months.forEach(m => {
+        const mData = byMonth[m];
+        html += `<div style="margin-bottom:12px;">
+          <div style="display:flex;align-items:center;gap:6px;font-weight:600;font-size:14px;margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid var(--border);">
+            ${(window.ICONS && ICONS.today) || '📅'} ${m}
+            <span style="margin-left:auto;color:var(--danger);font-size:13px;">${mData.points}점</span>
+          </div>`;
+        mData.items.forEach(item => {
+          html += `<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;font-size:12px;color:var(--text-secondary);">
+            <div>
+              <span style="color:var(--text-primary);">${escapeHtml(item.itemName)}</span>
+              ${item.memo ? `<span style="margin-left:4px;">(${escapeHtml(item.memo)})</span>` : ''}
+              <div style="font-size:11px;margin-top:1px;">${item.date}</div>
+            </div>
+            <span style="font-weight:600;color:var(--danger);">-${item.points}점</span>
+          </div>`;
+        });
+        html += `</div>`;
+      });
+    }
+
+    showModal(`${escapeHtml(student.name)} 누적 벌점 (3월~)`, html);
   }
 
   // ─── 사감 근무 캘린더 ──────────────────────────────────

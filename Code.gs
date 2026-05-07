@@ -291,14 +291,20 @@ function getAppMonthlyData(month, students) {
       });
     }
     
-    // 벌점 로그 가져오기
+    // 벌점 로그 가져오기 (월별 + 3월부터 누적 집계 모두 처리)
     const penaltyLogSheet = appDb.getSheetByName('APP_벌점로그');
     let penaltyLogs = [];
+    let allPenaltyLogs = [];
     if (penaltyLogSheet && penaltyLogSheet.getLastRow() > 1) {
       const penaltyData = penaltyLogSheet.getRange(2, 1, penaltyLogSheet.getLastRow() - 1, 7).getValues();
+      const marchStart = new Date(year, 2, 1); // 3월 1일
       penaltyLogs = penaltyData.filter(row => {
         const d = new Date(row[0]);
         return d >= monthStart && d <= monthEnd;
+      });
+      allPenaltyLogs = penaltyData.filter(row => {
+        const d = new Date(row[0]);
+        return d >= marchStart;
       });
     }
     
@@ -337,11 +343,29 @@ function getAppMonthlyData(month, students) {
       student.appPenalty = appPenalty;
 
       // 총 벌점: 원본 기초값 + APP 벌점 로그 합계
-      // (초과벌점은 checkAndApplyOverPenalty가 APP_벌점로그에 이미 기록함 — 별도 계산 불필요)
       student.calculatedTotalPenalty = student.totalPenalty + appPenalty;
 
-      // 징계 자동 판단
-      student.calculatedDiscipline = calculateDiscipline(student.calculatedTotalPenalty, disciplineRules);
+      // 3월부터 누적 벌점 + 월별 내역
+      const studentAllLogs = allPenaltyLogs.filter(log => String(log[1]) === student.studentId);
+      const penaltyByMonth = {};
+      studentAllLogs.forEach(log => {
+        const d = new Date(log[0]);
+        const m = (d.getMonth() + 1) + '월';
+        if (!penaltyByMonth[m]) penaltyByMonth[m] = { points: 0, items: [] };
+        const pts = Number(log[3]) || 0;
+        penaltyByMonth[m].points += pts;
+        penaltyByMonth[m].items.push({
+          date: safeDateStr(log[0]),
+          itemName: String(log[2]),
+          points: pts,
+          memo: String(log[4])
+        });
+      });
+      student.cumulativePenalty = studentAllLogs.reduce((sum, log) => sum + (Number(log[3]) || 0), 0);
+      student.penaltyByMonth = penaltyByMonth;
+
+      // 징계 자동 판단 (누적 기준)
+      student.calculatedDiscipline = calculateDiscipline(student.cumulativePenalty, disciplineRules);
     });
     
     return students;
