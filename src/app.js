@@ -68,6 +68,9 @@ function getGender(room) {
       // 3. 설정값
       APP.settings = data.settings || { MAX_OUT_COUNT: '2', MAX_STAY_COUNT: '2' };
 
+      // 문자 템플릿 미리 로드 (문자 버튼 클릭 시 즉시 사용 — 백그라운드)
+      preloadSmsTemplates();
+
       // 4. 전역 데이터 캐시 저장 (SPA 1초 로딩 구현 핵심)
       if (data.dutyData && data.dutyData.success) {
         APP.dutyData = data.dutyData.data || [];
@@ -930,37 +933,58 @@ function getGender(room) {
   }
 
   // ─── 문자/전화 연락 ────────────────────────────────────
-  async function openSms(phone, studentName) {
+  // 클라이언트 기본 문자 템플릿 (서버 템플릿 미로드 시 폴백 — 서버 getSmsTemplate 기본값과 동일)
+  const DEFAULT_SMS_TEMPLATES = {
+    '외출': '안녕하세요. 강경고등학교 기숙사입니다.\n{이름} 학생이 오늘({날짜}) 외출하였습니다.\n귀사 예정 시간: {귀사시간}\n감사합니다.',
+    '외박': '안녕하세요. 강경고등학교 기숙사입니다.\n{이름} 학생이 오늘({날짜}) 외박하였습니다.\n감사합니다.'
+  };
+
+  // 문자 템플릿을 앱 시작 시 미리 로드해 둔다.
+  // (openSms 안에서 서버를 await하면 모바일에서 사용자 클릭 제스처가 소실되어 sms: 스킴이 차단됨)
+  function preloadSmsTemplates() {
+    APP.smsTemplates = APP.smsTemplates || {};
+    ['외출', '외박'].forEach(function(t) {
+      callServer('getSmsTemplate', t)
+        .then(function(r) { if (r && r.success && r.data) APP.smsTemplates[t] = r.data; })
+        .catch(function() { /* 폴백 템플릿 사용 */ });
+    });
+  }
+
+  // 동기 함수: 클릭 제스처를 유지한 채 즉시 문자 앱으로 이동해야 하므로 await 하지 않는다.
+  function openSms(phone, studentName) {
     const s = APP.selectedStudent;
 
     // 외출/외박 상태에 따라 템플릿 유형 결정
-    let type = '외출'; // 기본값
-    if (s && s.todayStay) type = '외박';
+    const type = (s && s.todayStay) ? '외박' : '외출';
 
-    try {
-      const result = await callServer('getSmsTemplate', type);
-      let body = result.success ? result.data : '';
+    // 미리 로드된 서버 템플릿 우선, 없으면 클라이언트 기본 템플릿
+    let body = (APP.smsTemplates && APP.smsTemplates[type]) || DEFAULT_SMS_TEMPLATES[type] || '';
 
-      // 변수 치환
-      const today = new Date();
-      const dateStr = (today.getMonth() + 1) + '월 ' + today.getDate() + '일';
-      const returnTime = document.getElementById('return-time-input')?.value || '미정';
+    // 변수 치환
+    const today = new Date();
+    const dateStr = (today.getMonth() + 1) + '월 ' + today.getDate() + '일';
+    const returnTimeEl = document.getElementById('return-time-input');
+    const returnTime = (returnTimeEl && returnTimeEl.value) || '미정';
 
-      body = body.replace(/\{이름\}/g, studentName || '');
-      body = body.replace(/\{날짜\}/g, dateStr);
-      body = body.replace(/\{귀사시간\}/g, returnTime);
+    body = body.replace(/\{이름\}/g, studentName || '')
+               .replace(/\{날짜\}/g, dateStr)
+               .replace(/\{귀사시간\}/g, returnTime);
 
-      // SMS 딥링크 (iOS: sms:번호&body=... / Android: sms:번호?body=...)
-      const encodedBody = encodeURIComponent(body);
-      const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
-      const separator = isIOS ? '&' : '?';
-      const smsUrl = `sms:${phone}${separator}body=${encodedBody}`;
+    // SMS 딥링크 (iOS: sms:번호&body=... / Android: sms:번호?body=...)
+    const encodedBody = encodeURIComponent(body);
+    const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+    const separator = isIOS ? '&' : '?';
+    const smsUrl = `sms:${phone}${separator}body=${encodedBody}`;
 
-      window.top.location.href = smsUrl;
-    } catch (e) {
-      // 템플릿 로드 실패 시 빈 문자로 열기
-      window.top.location.href = `sms:${phone}`;
-    }
+    // GAS 웹앱은 교차출처 iframe 안에서 동작하므로 window.top.location 직접 대입은 SecurityError로 차단된다.
+    // 전화(tel:) 버튼과 동일하게 target="_top" 앵커를 만들어 클릭 → 최상위 프레임을 문자 앱으로 이동시킨다.
+    const a = document.createElement('a');
+    a.href = smsUrl;
+    a.target = '_top';
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
   }
 
   // ─── 연락처 수정 다이얼로그 ─────────────────────────────
@@ -1388,7 +1412,8 @@ function getGender(room) {
       if (!nums) return;
       var day = parseInt(nums[nums.length - 1], 10);
       if (!dutyMap[day]) dutyMap[day] = [];
-      dutyMap[day].push(entry.name);
+      // 대직(교체 사감)이 있으면 "원래사감 → 대직(대직)" 형태로 함께 표시
+      dutyMap[day].push(entry.sub ? (entry.name + ' → ' + entry.sub + '(대직)') : entry.name);
     });
     var DAYS = ['일', '월', '화', '수', '목', '금', '토'];
     var html = '<div class="duty-calendar"><div class="duty-calendar-header"><span class="duty-calendar-title">' + monthNum + '월 사감 근무 캘린더</span></div><div class="duty-cal-grid">';
@@ -1503,7 +1528,9 @@ function getGender(room) {
 
     // 오늘 사감 배너
     if (todayDuties.length > 0) {
-      const names = todayDuties.map(d => escapeHtml(d.name)).join(', ');
+      const names = todayDuties.map(d => d.sub
+        ? escapeHtml(d.name) + ' → ' + escapeHtml(d.sub) + ' (대직)'
+        : escapeHtml(d.name)).join(', ');
       const dow = escapeHtml(todayDuties[0].dayOfWeek);
       html += `
             <div class="today-duty-banner">
@@ -1534,9 +1561,11 @@ function getGender(room) {
       return;
     }
 
-    // 해당 교사의 근무일만 필터
+    // 해당 교사의 근무일만 필터 (원래 사감 + 대직 근무 모두 포함)
     const filtered = (APP.dutyData || []).filter(entry => {
-      return entry.name.includes(teacher) || entry.duty.includes(teacher);
+      return entry.name.includes(teacher) ||
+             (entry.sub && entry.sub.includes(teacher)) ||
+             entry.duty.includes(teacher);
     });
 
     if (filtered.length === 0) {
@@ -1546,14 +1575,24 @@ function getGender(room) {
 
     resultContainer.innerHTML = `
             <h3 style="font-size:15px;margin-bottom:var(--space-sm);color:var(--text-primary);">${escapeHtml(teacher)} 선생님 사감 근무 (${filtered.length}회)</h3>
-            ${filtered.map(entry => `
+            ${filtered.map(entry => {
+              // 선택한 교사가 이 날 '대직'으로 들어갔는지, '원래 사감'인지 표시
+              const isSubDuty = entry.sub && entry.sub.includes(teacher) && !entry.name.includes(teacher);
+              let roleNote = '';
+              if (isSubDuty) {
+                roleNote = `<div class="duty-role" style="font-size:12px;color:var(--primary);font-weight:600;">대직 근무 (원래: ${escapeHtml(entry.name)})</div>`;
+              } else if (entry.sub) {
+                roleNote = `<div class="duty-role" style="font-size:12px;color:var(--text-secondary);">대직: ${escapeHtml(entry.sub)}</div>`;
+              }
+              return `
               <div class="duty-card">
                 <div class="duty-date">
                   <div class="day">${escapeHtml(entry.date)}</div>
                   <div class="dow">${escapeHtml(entry.dayOfWeek)}</div>
                 </div>
+                ${roleNote}
               </div>
-            `).join('')}
+            `;}).join('')}
         `;
   }
 

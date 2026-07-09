@@ -342,10 +342,7 @@ function getAppMonthlyData(month, students) {
       student.appStayCount = appStayCount;
       student.appPenalty = appPenalty;
 
-      // 총 벌점: 원본 기초값 + APP 벌점 로그 합계
-      student.calculatedTotalPenalty = student.totalPenalty + appPenalty;
-
-      // 3월부터 누적 벌점 + 월별 내역
+      // 3월부터 월별 벌점 내역 (앱 벌점로그 기준)
       const studentAllLogs = allPenaltyLogs.filter(log => String(log[1]) === student.studentId);
       const penaltyByMonth = {};
       studentAllLogs.forEach(log => {
@@ -361,8 +358,19 @@ function getAppMonthlyData(month, students) {
           memo: String(log[4])
         });
       });
-      student.cumulativePenalty = studentAllLogs.reduce((sum, log) => sum + (Number(log[3]) || 0), 0);
       student.penaltyByMonth = penaltyByMonth;
+
+      // 앱 벌점 누적(3월~조회월 말)
+      const appCumulative = studentAllLogs
+        .filter(log => new Date(log[0]) <= monthEnd)
+        .reduce((sum, log) => sum + (Number(log[3]) || 0), 0);
+      // 시트 수기 누적(M열, 총 벌점) — 선생님이 수기 입력·직접 수정한 값 포함
+      const sheetCumulative = Number(student.totalPenalty) || 0;
+      // 누적 벌점 = 시트 수기값과 앱 누적 중 큰 값
+      // (수기 벌점을 반영하면서도 앱↔수기 이중 계산을 방지)
+      student.cumulativePenalty = Math.max(sheetCumulative, appCumulative);
+      // 총 벌점(폴백용)도 동일 값으로 통일
+      student.calculatedTotalPenalty = student.cumulativePenalty;
 
       // 징계 자동 판단 (누적 기준)
       student.calculatedDiscipline = calculateDiscipline(student.cumulativePenalty, disciplineRules);
@@ -542,6 +550,11 @@ function convertStayToOut(studentId, studentName, room, month, recordDate) {
       logSheet.appendRow([targetDate, '외박(외출전환)', studentId, studentName, room, '', 'active', user.email, now]);
       action = '외박→외출전환 (신규)';
     }
+    // 전환으로 외박/외출 횟수가 바뀌므로 초과 벌점 재계산
+    // (외박을 외출로 전환하면 외박 수가 줄어 이전에 자동부과된 '외박 초과' 벌점이 사라져야 함.
+    //  외박(외출전환)은 외출 초과 계산에서 면제되므로 외출 벌점은 늘지 않음)
+    checkAndApplyOverPenalty(studentId, studentName, '외박', month);
+    checkAndApplyOverPenalty(studentId, studentName, '외출', month);
     syncToOriginalSheet(studentId, month);
     addAuditLog(user.email, action, studentId + ' ' + studentName, targetDate);
     clearAppCache(month);
@@ -1044,8 +1057,10 @@ function getDutySchedule(month) {
         return { success: true, data: [], teachers: [] };
       }
       
-      // F(6) ~ I(9) 열 데이터 가져오기 (인덱스는 0부터 시작: 날짜(F)=0, 요일(G)=1, 직(H)=2, 성명(I)=3)
-      const data = sheet.getRange(6, 6, lastRow - 5, 4).getValues();
+      // F(6) ~ M(13) 열 데이터 가져오기 (0-based: 날짜(F)=0, 요일(G)=1, 직(H)=2, 성명(I)=3, … 대직성명(M)=7)
+      // 일부 월 시트에 M열이 없을 수 있으므로 실제 열 수로 보호
+      const numCols = Math.max(4, Math.min(8, sheet.getMaxColumns() - 5));
+      const data = sheet.getRange(6, 6, lastRow - 5, numCols).getValues();
       
       const schedules = [];
       const teacherSet = new Set();
@@ -1087,16 +1102,20 @@ function getDutySchedule(month) {
         if (dayStr === '') dayStr = lastDayStr;
         lastDayStr = dayStr;
         
-        const teacherName = String(row[3] || '').trim(); // I열 (당직근무자 성명)
-        
+        const teacherName = String(row[3] || '').trim(); // I열 (원래 당직근무자 성명)
+        const subName = String(row[7] || '').trim();      // M열 (대직/교체 사감 성명)
+
         if (teacherName && !excludeWords.includes(teacherName)) {
+          const hasSub = subName && !excludeWords.includes(subName) && subName !== teacherName;
           schedules.push({
             date: dateStr,
             dayOfWeek: dayStr,
             duty: '사감',
-            name: teacherName
+            name: teacherName,
+            sub: hasSub ? subName : ''   // 대직(교체 사감) 이름, 없으면 ''
           });
           teacherSet.add(teacherName);
+          if (hasSub) teacherSet.add(subName); // 대직 교사도 근무 조회 대상에 포함
         }
       }
       
@@ -1549,17 +1568,16 @@ function syncToOriginalSheet(studentId, month) {
       });
     }
     
-    // 초과 벌점 (원본 시트 F/J열 표시용으로만 계산 — totalPenalty 합산에는 사용 안 함)
+    // 초과 벌점 (F/J열 표시용)
     const outOverPenalty = Math.max(0, outCount - maxOut) * overPoints;
     const stayOverPenalty = Math.max(0, stayCount - maxStay) * overPoints;
-    // totalPenalty: APP_벌점로그 합계만 사용 (초과벌점은 이미 로그에 포함됨)
-    const totalPenalty = penaltySum;
-    
-    // 징계 판단
-    const disciplineRules = getDisciplineRules();
-    const discipline = calculateDiscipline(totalPenalty, disciplineRules);
-    
-    // 원본 시트에 값 셀 반영 (날짜, 횟수, 벌점, 징계)
+
+    // 이번달 총 벌점(L열): 앱 벌점 합계(초과+앱부여)와 기존 시트 L값 중 큰 값
+    // → 시트에 직접 입력한 '기타 수기 벌점'을 지우지 않고 보존하면서 앱 벌점도 반영
+    const existingL = Number(sheet.getRange(targetRow, 12).getValue()) || 0;
+    const monthTotal = Math.max(penaltySum, existingL);
+
+    // 원본 시트에 값 셀 반영 (날짜/횟수/초과벌점/월 총벌점)
     // D열(4): 외출 인정일, E열(5): 외출 횟수, F열(6): 외출 벌점
     sheet.getRange(targetRow, 4).setValue(outDates.length > 0 ? outDates.join('/') + '/' : ''); // D: 외출 날짜
     sheet.getRange(targetRow, 5).setValue(outCount);       // E: 외출 횟수
@@ -1568,9 +1586,9 @@ function syncToOriginalSheet(studentId, month) {
     sheet.getRange(targetRow, 8).setValue(stayDates.length > 0 ? stayDates.join('/') + '/' : ''); // H: 외박 날짜
     sheet.getRange(targetRow, 9).setValue(stayCount);      // I: 외박 횟수
     sheet.getRange(targetRow, 10).setValue(stayOverPenalty);// J: 외박 벌점
-    // M열(13): 총 벌점, N열(14): 징계
-    sheet.getRange(targetRow, 13).setValue(totalPenalty);   // M: 총 벌점
-    sheet.getRange(targetRow, 14).setValue(discipline);     // N: 징계 조치
+    // L열(12): 그 달의 총 벌점 (앱 벌점 + 기존 수기 보존)
+    sheet.getRange(targetRow, 12).setValue(monthTotal);
+    // M열(13, 누적 총벌점)·N열(14, 징계)은 선생님이 직접 관리 → 앱이 덮어쓰지 않음
     
     Logger.log('✅ 원본 시트 동기화 완료: ' + studentId + ' (' + month + ')');
   } catch (e) {
